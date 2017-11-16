@@ -11,7 +11,7 @@
 #define ROOM_COUNT 2
 #define USERS_CAP_PER_ROOM 3
 
-#define LIMBO "limbo"
+#define LIMBO "LIMBO"
 #define ROOM_1_ID "Hobby"
 #define ROOM_2_ID "330"
 
@@ -27,8 +27,7 @@ void preServerStart_InitializeClients(Client *, int);
 
 void preServerStart_InitializeNoWaitInterval(struct timeval *interval);
 
-void duringServerOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor);
-
+void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor);
 
 /*******************  Function prototypes end here  ************************/
 
@@ -56,28 +55,34 @@ int main() {
 
     listen(server_sd, 10);
 
-    printf("[INFO] Server online at port %d\n", PORT);
+    printf("[INFO] Online at port %d\n", PORT);
 
     FD_ZERO(&original_fd_list);
     FD_SET(server_sd, &original_fd_list);
     max_fd = server_sd;
 
+    bzero(&masterBuffer, BUFFER_LENGTH);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
-    while (1) {
 
+    printf("[INFO] Server loop begins\n");
+    while (1) {
+        
         //<editor-fold desc="STAGE 1 - Server detecting incoming connection">
         current_fd_list = original_fd_list;
         io_ready_count = select(max_fd + 1, &current_fd_list, NULL, NULL, &noWait_Interval);
 
         if (FD_ISSET(server_sd, &current_fd_list)) {
+            printf("[INFO] Non-block select() returns %d\n", io_ready_count);
             int newC_sd = accept(server_sd, NULL, NULL);
+            printf("[INFO] Accept client's connection w/ sock_desc of %d\n", newC_sd);
 
             int i;
             for (i = 0; i < USERS_CAP_PER_ROOM * ROOM_COUNT; i++) {
                 if (clients[i].clisd < 0) {
                     clients[i].clisd = newC_sd;
+                    printf("[INFO] Client %d is initialized with sock_def of %d w/ default name \"LIMBO\"\n", i, newC_sd);
                     break;
                 }
             }
@@ -94,13 +99,16 @@ int main() {
             int i;
             for (i = 0; i < USERS_CAP_PER_ROOM * ROOM_COUNT; i++) {
                 if (clients[i].clisd > 0 && FD_ISSET(clients[i].clisd, &current_fd_list)) {
-                    bzero(&masterBuffer, BUFFER_LENGTH);
                     ssize_t read_res = read(clients[i].clisd, masterBuffer, BUFFER_LENGTH - 1); //space a char for the \0
 
                     if (read_res <= 0) {
-                        close(clients[i].clisd);
-                        FD_CLR(clients[i].clisd, &original_fd_list);
-                        duringServerOperation_WipeClientRecord(clients, clients[i].clisd);
+                        int disc_sd = clients[i].clisd;
+                        printf("[INFO] Client %d (%s@%d) disconnected\n", i, clients[i].chatRoomId , disc_sd);
+                        
+                        close(disc_sd);
+                        FD_CLR(disc_sd, &original_fd_list);
+                        serverOperation_WipeClientRecord(clients, disc_sd);
+
                     } else { //successfully read message from client[i]
 
                         //todo [2] Interpret commands
@@ -111,6 +119,7 @@ int main() {
                             }
                         }
 
+                        bzero(&masterBuffer, BUFFER_LENGTH);
                         if (--io_ready_count <= 0) break;
                     }
                 }
@@ -142,7 +151,7 @@ void preServerStart_InitializeNoWaitInterval(struct timeval *interval) {
     interval->tv_sec = 0;
 }
 
-void duringServerOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor) {
+void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor) {
     int i;
     for (i = 0; i < USERS_CAP_PER_ROOM * ROOM_COUNT; i++) {
         if (clientArray[i].clisd == client_sockDescriptor) {
