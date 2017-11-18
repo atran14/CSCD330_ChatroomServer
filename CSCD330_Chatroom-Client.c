@@ -2,6 +2,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <strings.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -39,13 +40,13 @@ int main() {
     printf("Finding server...\n");
     connect_result = connect(sockfd, (const struct sockaddr *) &servaddr, sizeof(servaddr));
     if (connect_result != 0) {
-        printf("No server found, exiting...");
+        printf("No server found, exiting...\n");
         return -1;
     }
 
     printf("Server found!\n");
 
-    pthread_create(&readThread, NULL, clientOperation_ReadThreadFunction, NULL);
+    pthread_create(&readThread, NULL, &clientOperation_ReadThreadFunction, NULL);
 
 
     while (1) {
@@ -70,7 +71,7 @@ void *clientOperation_ReadThreadFunction(void *in_ptr) {
         bzero(recvline, BUFFER_LENGTH);
 
         if (read(sockfd, recvline, BUFFER_LENGTH) != 0) {
-            printf("Other: %s", recvline);
+            printf("%s", recvline);
         } else {
             break;
         }

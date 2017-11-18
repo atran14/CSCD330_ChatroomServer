@@ -1,5 +1,6 @@
 #include <netinet/in.h>
 #include <strings.h>
+#include <string.h>
 #include <stdio.h>
 #include <sys/select.h>
 #include <stdlib.h>
@@ -48,6 +49,8 @@ void preServerStart_InitializeNoWaitInterval(struct timeval *interval);
 
 void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor);
 
+void getClientName(Client * newClient, char *masterBuffer);
+
 void interpretCommand(char *input, Client *clients, int curClient);
 
 char *parseCommand(char *input, int *command);
@@ -69,6 +72,8 @@ void sendFileCommand(char *fileName);
 void helpCommand();
 
 void broadcastMessage(Client *clients, int curClient, char *message);
+
+void stripNewLine(char *array);
 
 /*******************  Function prototypes end here  ************************/
 
@@ -102,7 +107,7 @@ int main() {
     FD_SET(server_sd, &original_fd_list);
     max_fd = server_sd;
 
-    bzero(&masterBuffer, BUFFER_LENGTH);
+    bzero(masterBuffer, BUFFER_LENGTH);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
@@ -125,6 +130,7 @@ int main() {
                     clients[i].clisd = newC_sd;
                     printf("[INFO] Client %d is initialized with sock_def of %d w/ default name \"LIMBO\"\n", i,
                            newC_sd);
+                    getClientName(&(clients[i]), masterBuffer);
                     break;
                 }
             }
@@ -156,7 +162,7 @@ int main() {
 
                         interpretCommand(masterBuffer, clients, i);
 
-                        bzero(&masterBuffer, BUFFER_LENGTH);
+                        bzero(masterBuffer, BUFFER_LENGTH);
                         if (--io_ready_count <= 0) break;
                     }
                 }
@@ -203,17 +209,28 @@ void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescri
     exit(-1);
 }
 
+void getClientName(Client * newClient, char *masterBuffer) {
+    write(newClient->clisd, "Enter your name: \n", BUFFER_LENGTH - 1);
+    bzero(masterBuffer, BUFFER_LENGTH);
+    read(newClient->clisd, masterBuffer, BUFFER_LENGTH - 1);
+    stripNewLine(masterBuffer);
+    strncpy(newClient->name, masterBuffer, STANDARD_NAME_LENGTH);
+    printf("[DEBUG] masterBuffer: %s\n", masterBuffer);
+    printf("[DEBUG] newClient->name: %s\n", newClient->name);
+    write(newClient->clisd, "Welcome to E-Chat.\n", BUFFER_LENGTH - 1);
+    bzero(masterBuffer, BUFFER_LENGTH);
+}
+
 void interpretCommand(char *input, Client *clients, int curClient) {
-    int commandId;
-    bzero(input, BUFFER_LENGTH);        // for use as a argument container for commands
-    input = parseCommand(input, &commandId);
+    int commandId = -1;
+    char *arguments = parseCommand(input, &commandId);
 
     switch (commandId) {
         case LIST_ROOMS_COMMAND_ID:
             listRoomsCommand(clients[curClient]);
             break;
         case JOIN_ROOM_COMMAND_ID:
-            joinRoomCommand(input, clients[curClient]);
+            joinRoomCommand(arguments, clients[curClient]);
             break;
         case LIST_PEOPLE_COMMAND_ID:
             listPeopleCommand(clients, curClient);
@@ -222,27 +239,28 @@ void interpretCommand(char *input, Client *clients, int curClient) {
             logOffCommand(clients, curClient);
             break;
         case PRIVATE_CHAT_COMMAND_ID:
-            privateChatCommand(input);
+            privateChatCommand(arguments);
+            break;
         case END_PRIVATE_CHAT_COMMAND_ID:
             endPrivateChatCommand();
+            break;
         case SEND_FILE_COMMAND_ID:
-            sendFileCommand(input);
+            sendFileCommand(arguments);
+            break;
         case HELP_COMMAND_ID:
             helpCommand();
+            break;
         default:
             broadcastMessage(clients, curClient, input);
     }
-
+    bzero(input, BUFFER_LENGTH);
 }
 
 char *parseCommand(char *input, int *commandId) {
     if (input[0] == '/') {
-        char **command = NULL;
-        *command = strtok_r(input, " ", &input);
-        // input should now be everything after the command name and space;
-        // e.g. if input was '/j Hobby', strtok_r will return '/r', pass over the space, and turn input into just 'Hobby'
+        char *command = strtok_r(input, " ", &input);
 
-        switch ( (*command)[1] ) {
+        switch ( command[1] ) {
             case LIST_ROOMS:
                 *commandId = LIST_ROOMS_COMMAND_ID;
                 break;
@@ -277,74 +295,99 @@ char *parseCommand(char *input, int *commandId) {
 }
 
 void listRoomsCommand(Client client) {
-    printf("%s, %s\n", ROOM_1_ID, ROOM_2_ID);
-    // write(client.clisd, &("%s, %s\n"), strlen(client.name));
+    printf("[DEBUG] listRoomsCommand\n");
+    // printf("%s, %s\n", ROOM_1_ID, ROOM_2_ID);
+    // // write(client.clisd, &("%s, %s\n"), strlen(client.name));
 }
 
 void joinRoomCommand(char *roomName, Client client) {
-
+    printf("[DEBUG] joinRoomCommand\n");
 }
 
 void listPeopleCommand(Client *clients, int curClient) {
-    char *roomToCheck;
-    if (strcmp(clients[curClient].chatRoomId, ROOM_1_ID) == 0) {
-        roomToCheck = ROOM_1_ID;
-    } else if (strcmp(clients[curClient].chatRoomId, ROOM_2_ID) == 0) {
-        roomToCheck = ROOM_2_ID;
-    } else { // Client is not in a room/is in limbo
-        printf("[INFO] Client is not in a room!\n");
-        return;
-    }
-    int j;
-    for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
-        if (clients[j].clisd > 0
-            && strcmp(clients[j].chatRoomId, roomToCheck) == 0) {
-            printf("%s ", clients[j].name);
-            // write(clients[curClient].clisd, &(clients[j].name + " "), strlen(clients[j].name));
-        }
-    }
-    printf("\n");
-    // write instead of printf
+    printf("[DEBUG] listPeopleCommand\n");
+    // char *roomToCheck;
+    // if (strcmp(clients[curClient].chatRoomId, ROOM_1_ID) == 0) {
+    //     roomToCheck = ROOM_1_ID;
+    // } else if (strcmp(clients[curClient].chatRoomId, ROOM_2_ID) == 0) {
+    //     roomToCheck = ROOM_2_ID;
+    // } else { // Client is not in a room/is in limbo
+    //     printf("[INFO] Client is not in a room!\n");
+    //     return;
+    // }
+    // int j;
+    // for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+    //     if (clients[j].clisd > 0
+    //         && strcmp(clients[j].chatRoomId, roomToCheck) == 0) {
+    //         printf("%s ", clients[j].name);
+    //         // write(clients[curClient].clisd, &(clients[j].name + " "), strlen(clients[j].name));
+    //     }
+    // }
+    // printf("\n");
+    // // write instead of printf
 }
 
 void logOffCommand(Client *clients, int curClient) {
-    //todo [2.1.LogOff] Need to follow the procedure in the server loop for closing client socket (close() -> clear fd in the fd_set -> serverOp_WipeCleanRecord)
-    printf("[INFO] %s is logging off", clients[curClient].name);
-    serverOperation_WipeClientRecord(clients, clients[curClient].clisd);
+    printf("[DEBUG] logOffCommand\n");
+    // //todo [2.1.LogOff] Need to follow the procedure in the server loop for closing client socket (close() -> clear fd in the fd_set -> serverOp_WipeCleanRecord)
+    // printf("[INFO] %s is logging off", clients[curClient].name);
+    // serverOperation_WipeClientRecord(clients, clients[curClient].clisd);
 }
 
 void privateChatCommand(char *personName) {
-
+    printf("[DEBUG] privateChatCommand\n");
 }
 
 void endPrivateChatCommand() {
-
+    printf("[DEBUG] endPrivateChatCommand\n");
 }
 
 void sendFileCommand(char *fileName) {
-
+    printf("[DEBUG] sendFileCommand\n");
 }
 
 void helpCommand() {
-    //todo [2.1.Help] Pass in an int for the target's socket descriptor to be able to write to it
-    printf("Here are the available commands:\n");
-    printf("'/r'          -  list the rooms on the server\n");
-    printf("'/j roomname' -  joins the given room\n");
-    printf("'/l'          -  lists people in the current roo\n");
-    printf("'/x'          -  close the connection and log off the server\n");
-    printf("'/p name'     -  private chat\n");
-    printf("'/q'          -  end private chat\n");
-    printf("'/f filename' -  send file\n");
-    printf("'/h'          -  help\n");
+    printf("[DEBUG] helpCommand\n");
+    // //todo [2.1.Help] Pass in an int for the target's socket descriptor to be able to write to it
+    // printf("Here are the available commands:\n");
+    // printf("'/r'          -  list the rooms on the server\n");
+    // printf("'/j roomname' -  joins the given room\n");
+    // printf("'/l'          -  lists people in the current roo\n");
+    // printf("'/x'          -  close the connection and log off the server\n");
+    // printf("'/p name'     -  private chat\n");
+    // printf("'/q'          -  end private chat\n");
+    // printf("'/f filename' -  send file\n");
+    // printf("'/h'          -  help\n");
 }
 
 void broadcastMessage(Client *clients, int curClient, char *message) {
-    int j;
-    for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
-        if (clients[j].clisd > 0
-            && j != curClient
-            && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
-            write(clients[j].clisd, &message, strlen(message));
-        }
+    printf("[DEBUG] broadcastMessage\n");
+    // int j;
+    // for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+    //     if (clients[j].clisd > 0
+    //         && j != curClient
+    //         && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
+    //         write(clients[j].clisd, &message, strlen(message));
+    //     }
+    // }
+}
+
+void stripNewLine(char *array) {
+	if(array == NULL) {
+		perror("array is null");
+		exit(-99);
+	}
+
+	int length = strlen(array), x = 0;
+   
+	while(array[x] != '\0' && x < length) {
+	  if(array[x] == '\r') {
+          array[x] = '\0';
+      }
+	  else if(array[x] == '\n') {
+          array[x] = '\0';
+      }
+
+	  x++;
     }
 }
