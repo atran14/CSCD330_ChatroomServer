@@ -39,6 +39,7 @@ typedef struct {
     int clisd;
     char name[STANDARD_NAME_LENGTH + 1];
     char chatRoomId[STANDARD_NAME_LENGTH];
+    int privateChatSd;
 } Client;
 
 /*******************  Function prototypes begin here  ************************/
@@ -50,6 +51,12 @@ void preServerStart_InitializeNoWaitInterval(struct timeval *interval);
 void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor);
 
 void getClientName(Client *newClient, char *masterBuffer);
+
+void writePromptPrefix(Client *clients, int curClient);
+
+Client getPrivateChatClientBySd(Client *clients, int clientSd);
+
+Client getPrivateChatClientByName(Client *clients, char *clientName);
 
 void interpretCommand(char *input, Client *clients, int curClient);
 
@@ -63,9 +70,9 @@ void listPeopleCommand(Client *clients, int curClient);
 
 void logOffCommand(Client *clients, int curClient);
 
-void privateChatCommand(char *personName);
+void privateChatCommand(char *personName, Client *clients, int curClient);
 
-void endPrivateChatCommand();
+void endPrivateChatCommand(Client *clients, int curClient);
 
 void sendFileCommand(char *fileName);
 
@@ -163,6 +170,7 @@ int main() {
                     } else { //successfully read message from client[i]
 
                         interpretCommand(masterBuffer, clients, i);
+                        writePromptPrefix(clients, i);
 
                         bzero(masterBuffer, BUFFER_LENGTH);
                         if (--io_ready_count <= 0) break;
@@ -188,6 +196,7 @@ void preServerStart_InitializeClients(Client *clientArray, int clientCount) {
 
         strncpy(clientArray[i].chatRoomId, LIMBO, strlen(LIMBO));
         clientArray[i].clisd = -1;
+        clientArray[i].privateChatSd = -1;
     }
 }
 
@@ -205,6 +214,7 @@ void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescri
 
             strncpy(clientArray[i].chatRoomId, LIMBO, strlen(LIMBO));
             clientArray[i].clisd = -1;
+            clientArray[i].privateChatSd = -1;
             return;
         }
     }
@@ -219,6 +229,44 @@ void getClientName(Client *newClient, char *masterBuffer) {
     strncpy(newClient->name, masterBuffer, STANDARD_NAME_LENGTH);
     write(newClient->clisd, "Welcome to E-Chat.\n", BUFFER_LENGTH - 1);
     bzero(masterBuffer, BUFFER_LENGTH);
+}
+
+void writePromptPrefix(Client *clients, int curClient) {
+    char prefix[12];
+    bzero(prefix, 12);
+    if(clients[curClient].privateChatSd < 0) {
+        if(strcmp(clients[curClient].chatRoomId, LIMBO) == 0) {
+            return;
+        }
+        else {
+            sprintf(prefix, "%s: \n", clients[curClient].chatRoomId);
+        }
+    }
+    else {
+        Client privateChatMate = getPrivateChatClientBySd(clients, clients[curClient].privateChatSd);
+        sprintf(prefix, "%s: \n", privateChatMate.name);
+    }
+    write(clients[curClient].clisd, prefix, strlen(prefix));
+    //todo [2.1.writePromptPrefix] need to flush buffer without \n
+}
+
+Client getPrivateChatClientBySd(Client *clients, int clientSd) {
+    int j;
+    for(j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+        if(clients[j].clisd == clientSd) {
+            return clients[j];
+        }
+    }
+}
+
+Client getPrivateChatClientByName(Client *clients, char *clientName) {
+    trim(&clientName);
+    int j;
+    for(j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+        if(strcmp(clients[j].name, clientName) == 0) {
+            return clients[j];
+        }
+    }
 }
 
 void interpretCommand(char *input, Client *clients, int curClient) {
@@ -239,10 +287,10 @@ void interpretCommand(char *input, Client *clients, int curClient) {
             logOffCommand(clients, curClient);
             break;
         case PRIVATE_CHAT_COMMAND_ID:
-            privateChatCommand(arguments);
+            privateChatCommand(arguments, clients, curClient);
             break;
         case END_PRIVATE_CHAT_COMMAND_ID:
-            endPrivateChatCommand();
+            endPrivateChatCommand(clients, curClient);
             break;
         case SEND_FILE_COMMAND_ID:
             sendFileCommand(arguments);
@@ -313,7 +361,6 @@ void joinRoomCommand(char *roomName, Client *client) {
     else {
         write(client->clisd, "Invalid room name.\n", 30);
     }
-    //todo [2.1.joinRoom] Need to prefix the client's prompt with their current room name
 }
 
 void listPeopleCommand(Client *clients, int curClient) {
@@ -345,12 +392,21 @@ void logOffCommand(Client *clients, int curClient) {
     // serverOperation_WipeClientRecord(clients, clients[curClient].clisd);
 }
 
-void privateChatCommand(char *personName) {
+void privateChatCommand(char *personName, Client *clients, int curClient) {
     printf("[DEBUG] privateChatCommand\n");
+    // Client privateClient = getPrivateChatClientByName(clients, personName);
+    // clients[curClient].privateChatSd = privateClient.clisd;
+    // privateClient.privateChatSd = clients[curClient].clisd;
+    // Still needs work
 }
 
-void endPrivateChatCommand() {
+void endPrivateChatCommand(Client *clients, int curClient) {
     printf("[DEBUG] endPrivateChatCommand\n");
+    // int privateChatSd = clients[curClient].privateChatSd;
+    // clients[curClient].privateChatSd = -1;
+    // Client privateClient = getPrivateChatClientBySd(clients, privateChatSd);
+    // privateClient.privateChatSd = -1;
+    // Still needs work
 }
 
 void sendFileCommand(char *fileName) {
