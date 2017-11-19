@@ -376,12 +376,14 @@ void helpCommand(Client *client) {
 
 void broadcastMessage(Client *clients, int curClient, char *message) {
     printf("[DEBUG] broadcastMessage to %s\n", clients[curClient].chatRoomId);
+    char nameAndMessage[BUFFER_LENGTH + 15];
+    sprintf(nameAndMessage, "(%s) %s", clients[curClient].name, message);
     int j;
     for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
         if (clients[j].clisd > 0
             && j != curClient
             && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
-            write(clients[j].clisd, message, strlen(message));
+            write(clients[j].clisd, nameAndMessage, strlen(nameAndMessage));
         }
     }
     //todo [2.1.Broadcast] Need to alter the condition to check if client is in private chat
