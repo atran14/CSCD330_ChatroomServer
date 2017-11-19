@@ -69,7 +69,7 @@ void endPrivateChatCommand();
 
 void sendFileCommand(char *fileName);
 
-void helpCommand();
+void helpCommand(Client *client);
 
 void broadcastMessage(Client *clients, int curClient, char *message);
 
@@ -248,7 +248,7 @@ void interpretCommand(char *input, Client *clients, int curClient) {
             sendFileCommand(arguments);
             break;
         case HELP_COMMAND_ID:
-            helpCommand();
+            helpCommand(&(clients[curClient]));
             break;
         default:
             broadcastMessage(clients, curClient, input);
@@ -357,30 +357,34 @@ void sendFileCommand(char *fileName) {
     printf("[DEBUG] sendFileCommand\n");
 }
 
-void helpCommand() {
-    printf("[DEBUG] helpCommand\n");
-    // //todo [2.1.Help] Pass in an int for the target's socket descriptor to be able to write to it
-    // printf("Here are the available commands:\n");
-    // printf("'/r'          -  list the rooms on the server\n");
-    // printf("'/j roomname' -  joins the given room\n");
-    // printf("'/l'          -  lists people in the current roo\n");
-    // printf("'/x'          -  close the connection and log off the server\n");
-    // printf("'/p name'     -  private chat\n");
-    // printf("'/q'          -  end private chat\n");
-    // printf("'/f filename' -  send file\n");
-    // printf("'/h'          -  help\n");
+void helpCommand(Client *client) {
+    int stringLength = 600;
+    char helpMessage[600];
+    snprintf(helpMessage, stringLength, "%s%s%s%s%s%s%s%s%s",
+        "Here are the available commands:\n",
+        "'/r'          -  list the rooms on the server\n",
+        "'/j roomname' -  joins the given room\n",
+        "'/l'          -  lists people in the current room\n",
+        "'/x'          -  close the connection and log off the server\n",
+        "'/p name'     -  private chat\n",
+        "'/q'          -  end private chat\n",
+        "'/f filename' -  send file\n",
+        "'/h'          -  help\n"
+    );
+    write(client->clisd, helpMessage, stringLength);
 }
 
 void broadcastMessage(Client *clients, int curClient, char *message) {
-    printf("[DEBUG] broadcastMessage\n");
-    // int j;
-    // for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
-    //     if (clients[j].clisd > 0
-    //         && j != curClient
-    //         && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
-    //         write(clients[j].clisd, &message, strlen(message));
-    //     }
-    // }
+    printf("[DEBUG] broadcastMessage to %s\n", clients[curClient].chatRoomId);
+    int j;
+    for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+        if (clients[j].clisd > 0
+            && j != curClient
+            && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
+            write(clients[j].clisd, message, strlen(message));
+        }
+    }
+    //todo [2.1.Broadcast] Need to alter the condition to check if client is in private chat
 }
 
 void stripNewLine(char *array) {
