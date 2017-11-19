@@ -49,7 +49,7 @@ void preServerStart_InitializeNoWaitInterval(struct timeval *interval);
 
 void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor);
 
-void getClientName(Client * newClient, char *masterBuffer);
+void getClientName(Client *newClient, char *masterBuffer);
 
 void interpretCommand(char *input, Client *clients, int curClient);
 
@@ -57,7 +57,7 @@ char *parseCommand(char *input, int *command);
 
 void listRoomsCommand(Client client);
 
-void joinRoomCommand(char *roomName, Client client);
+void joinRoomCommand(char *roomName, Client *client);
 
 void listPeopleCommand(Client *clients, int curClient);
 
@@ -74,6 +74,8 @@ void helpCommand();
 void broadcastMessage(Client *clients, int curClient, char *message);
 
 void stripNewLine(char *array);
+
+void trim(char ** word);
 
 /*******************  Function prototypes end here  ************************/
 
@@ -209,14 +211,12 @@ void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescri
     exit(-1);
 }
 
-void getClientName(Client * newClient, char *masterBuffer) {
+void getClientName(Client *newClient, char *masterBuffer) {
     write(newClient->clisd, "Enter your name: \n", BUFFER_LENGTH - 1);
     bzero(masterBuffer, BUFFER_LENGTH);
     read(newClient->clisd, masterBuffer, BUFFER_LENGTH - 1);
     stripNewLine(masterBuffer);
     strncpy(newClient->name, masterBuffer, STANDARD_NAME_LENGTH);
-    printf("[DEBUG] masterBuffer: %s\n", masterBuffer);
-    printf("[DEBUG] newClient->name: %s\n", newClient->name);
     write(newClient->clisd, "Welcome to E-Chat.\n", BUFFER_LENGTH - 1);
     bzero(masterBuffer, BUFFER_LENGTH);
 }
@@ -230,7 +230,7 @@ void interpretCommand(char *input, Client *clients, int curClient) {
             listRoomsCommand(clients[curClient]);
             break;
         case JOIN_ROOM_COMMAND_ID:
-            joinRoomCommand(arguments, clients[curClient]);
+            joinRoomCommand(arguments, &(clients[curClient]));
             break;
         case LIST_PEOPLE_COMMAND_ID:
             listPeopleCommand(clients, curClient);
@@ -295,36 +295,47 @@ char *parseCommand(char *input, int *commandId) {
 }
 
 void listRoomsCommand(Client client) {
-    printf("[DEBUG] listRoomsCommand\n");
-    // printf("%s, %s\n", ROOM_1_ID, ROOM_2_ID);
-    // // write(client.clisd, &("%s, %s\n"), strlen(client.name));
+    char roomList[80];
+    sprintf(roomList, "%s, %s\n", ROOM_1_ID, ROOM_2_ID);
+    write(client.clisd, roomList, strlen(roomList));
 }
 
-void joinRoomCommand(char *roomName, Client client) {
-    printf("[DEBUG] joinRoomCommand\n");
+void joinRoomCommand(char *roomName, Client *client) {
+    trim(&roomName);
+    if(strcmp(roomName, ROOM_1_ID) == 0) {
+        strncpy(client->chatRoomId, ROOM_1_ID, STANDARD_NAME_LENGTH);
+        printf("[DEBUG] client->chatRoomId: %s\n", client->chatRoomId);
+    }
+    else if(strcmp(roomName, ROOM_2_ID) == 0) {
+        strncpy(client->chatRoomId, ROOM_2_ID, STANDARD_NAME_LENGTH);
+        printf("[DEBUG] client->chatRoomId: %s\n", client->chatRoomId);
+    }
+    else {
+        write(client->clisd, "Invalid room name.\n", 30);
+    }
+    //todo [2.1.joinRoom] Need to prefix the client's prompt with their current room name
 }
 
 void listPeopleCommand(Client *clients, int curClient) {
-    printf("[DEBUG] listPeopleCommand\n");
-    // char *roomToCheck;
-    // if (strcmp(clients[curClient].chatRoomId, ROOM_1_ID) == 0) {
-    //     roomToCheck = ROOM_1_ID;
-    // } else if (strcmp(clients[curClient].chatRoomId, ROOM_2_ID) == 0) {
-    //     roomToCheck = ROOM_2_ID;
-    // } else { // Client is not in a room/is in limbo
-    //     printf("[INFO] Client is not in a room!\n");
-    //     return;
-    // }
-    // int j;
-    // for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
-    //     if (clients[j].clisd > 0
-    //         && strcmp(clients[j].chatRoomId, roomToCheck) == 0) {
-    //         printf("%s ", clients[j].name);
-    //         // write(clients[curClient].clisd, &(clients[j].name + " "), strlen(clients[j].name));
-    //     }
-    // }
-    // printf("\n");
-    // // write instead of printf
+    char *roomToCheck;
+    if (strcmp(clients[curClient].chatRoomId, ROOM_1_ID) == 0) {
+        roomToCheck = ROOM_1_ID;
+    } else if (strcmp(clients[curClient].chatRoomId, ROOM_2_ID) == 0) {
+        roomToCheck = ROOM_2_ID;
+    } else { // Client is not in a room/is in limbo
+        write(clients[curClient].clisd, "You are not in a room!\n", 30);
+        return;
+    }
+    char personInRoom[STANDARD_NAME_LENGTH + 1];
+    int j;
+    for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+        if (clients[j].clisd > 0
+            && strcmp(clients[j].chatRoomId, roomToCheck) == 0) {
+            sprintf(personInRoom, "%s ", clients[j].name);
+            write(clients[curClient].clisd, personInRoom, strlen(personInRoom));
+        }
+    }
+    write(clients[curClient].clisd, "\n", 3);
 }
 
 void logOffCommand(Client *clients, int curClient) {
@@ -389,5 +400,26 @@ void stripNewLine(char *array) {
       }
 
 	  x++;
+    }
+}
+
+// remove a single space ' ' on either end of the string. Does NOT remove it in the middle; does not remove multiple spaces.
+void trim(char ** word) {
+	if(word == NULL) {
+		perror("word is null");
+		exit(-99);
+	}// end if
+
+    stripNewLine(*word);
+
+	int length = strlen(*word);
+
+    if(length > 1) {
+        if((*word)[0] == ' ') {
+            *word = *word + 1;
+        }
+        if((*word)[length - 1] == ' ') {
+            (*word)[length - 1] = '\0';
+        }
     }
 }
