@@ -1,6 +1,5 @@
 #include <netinet/in.h>
 #include <strings.h>
-#include <string.h>
 #include <stdio.h>
 #include <sys/select.h>
 #include <stdlib.h>
@@ -54,9 +53,9 @@ void getClientName(Client *newClient, char *masterBuffer);
 
 void writePromptPrefix(Client *clients, int curClient);
 
-Client getPrivateChatClientBySd(Client *clients, int clientSd);
+Client *getPrivateChatClientBySd(Client *clients, int clientSd);
 
-Client getPrivateChatClientByName(Client *clients, char *clientName);
+Client *getPrivateChatClientByName(Client *clients, char *clientName);
 
 void interpretCommand(char *input, Client *clients, int curClient);
 
@@ -70,7 +69,7 @@ void listPeopleCommand(Client *clients, int curClient);
 
 void logOffCommand(Client *clients, int curClient);
 
-void privateChatCommand(char *personName, Client *clients, int curClient);
+void privateChatCommand(char *privateChatUser_name, Client *clients, int curClient);
 
 void endPrivateChatCommand(Client *clients, int curClient);
 
@@ -82,15 +81,17 @@ void broadcastMessage(Client *clients, int curClient, char *message);
 
 void stripNewLine(char *array);
 
-void trim(char ** word);
+void trim(char **word);
 
 /*******************  Function prototypes end here  ************************/
+
+fd_set original_fd_list;
 
 int main() {
 
     Client clients[USERS_CAP_PER_ROOM * ROOM_COUNT];
     char masterBuffer[BUFFER_LENGTH];
-    fd_set current_fd_list, original_fd_list;
+    fd_set current_fd_list;
     struct timeval noWait_Interval;
     int io_ready_count;
     int server_sd, max_fd;
@@ -161,12 +162,10 @@ int main() {
 
                     if (read_res <= 0) {
                         int disc_sd = clients[i].clisd;
-                        printf("[INFO] Client %d (%s@%d) disconnected\n", i, clients[i].chatRoomId, disc_sd);
+                        printf("[INFO] Client %s @ sd %d disconnected. Proceed to call logOffCommand()\n",
+                               clients[i].name, disc_sd);
 
-                        close(disc_sd);
-                        FD_CLR(disc_sd, &original_fd_list);
-                        serverOperation_WipeClientRecord(clients, disc_sd);
-
+                        logOffCommand(clients, i);
                     } else { //successfully read message from client[i]
 
                         interpretCommand(masterBuffer, clients, i);
@@ -214,7 +213,14 @@ void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescri
 
             strncpy(clientArray[i].chatRoomId, LIMBO, strlen(LIMBO));
             clientArray[i].clisd = -1;
+
+            if (clientArray[i].privateChatSd > 0) {
+                Client *privateClient = getPrivateChatClientBySd(clientArray, clientArray[i].privateChatSd);
+                privateClient->privateChatSd = -1;
+            }
             clientArray[i].privateChatSd = -1;
+
+
             return;
         }
     }
@@ -222,51 +228,54 @@ void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescri
 }
 
 void getClientName(Client *newClient, char *masterBuffer) {
+    //todo [2.1.GetClientName] Potential to clog other clients' turn at read() when one intentionally not typing their name just after connecting to server (fix after demo)
     write(newClient->clisd, "Enter your name: \n", BUFFER_LENGTH - 1);
     bzero(masterBuffer, BUFFER_LENGTH);
     read(newClient->clisd, masterBuffer, BUFFER_LENGTH - 1);
     stripNewLine(masterBuffer);
     strncpy(newClient->name, masterBuffer, STANDARD_NAME_LENGTH);
     write(newClient->clisd, "Welcome to E-Chat.\n", BUFFER_LENGTH - 1);
+    printf("[INFO] Client at sd %d changed its name to %s\n", newClient->clisd, masterBuffer);
     bzero(masterBuffer, BUFFER_LENGTH);
 }
 
 void writePromptPrefix(Client *clients, int curClient) {
     char prefix[12];
     bzero(prefix, 12);
-    if(clients[curClient].privateChatSd < 0) {
-        if(strcmp(clients[curClient].chatRoomId, LIMBO) == 0) {
+    if (clients[curClient].privateChatSd < 0) {
+        if (strcmp(clients[curClient].chatRoomId, LIMBO) == 0) {
             return;
+        } else {
+            sprintf(prefix, "%s: ", clients[curClient].chatRoomId);
         }
-        else {
-            sprintf(prefix, "%s: \n", clients[curClient].chatRoomId);
-        }
-    }
-    else {
-        Client privateChatMate = getPrivateChatClientBySd(clients, clients[curClient].privateChatSd);
-        sprintf(prefix, "%s: \n", privateChatMate.name);
+    } else {
+        Client *privateChatMate = getPrivateChatClientBySd(clients, clients[curClient].privateChatSd);
+        sprintf(prefix, "%s: ", privateChatMate->name);
     }
     write(clients[curClient].clisd, prefix, strlen(prefix));
-    //todo [2.1.writePromptPrefix] need to flush buffer without \n
 }
 
-Client getPrivateChatClientBySd(Client *clients, int clientSd) {
+Client *getPrivateChatClientBySd(Client *clients, int clientSd) {
     int j;
-    for(j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
-        if(clients[j].clisd == clientSd) {
-            return clients[j];
+    for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+        if (clients[j].clisd == clientSd) {
+            return &clients[j];
         }
     }
+
+    return NULL;
 }
 
-Client getPrivateChatClientByName(Client *clients, char *clientName) {
+Client *getPrivateChatClientByName(Client *clients, char *clientName) {
     trim(&clientName);
     int j;
-    for(j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
-        if(strcmp(clients[j].name, clientName) == 0) {
-            return clients[j];
+    for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
+        if (strcmp(clients[j].name, clientName) == 0) {
+            return &clients[j];
         }
     }
+
+    return NULL;
 }
 
 void interpretCommand(char *input, Client *clients, int curClient) {
@@ -308,7 +317,7 @@ char *parseCommand(char *input, int *commandId) {
     if (input[0] == '/') {
         char *command = strtok_r(input, " ", &input);
 
-        switch ( command[1] ) {
+        switch (command[1]) {
             case LIST_ROOMS:
                 *commandId = LIST_ROOMS_COMMAND_ID;
                 break;
@@ -349,17 +358,21 @@ void listRoomsCommand(Client client) {
 }
 
 void joinRoomCommand(char *roomName, Client *client) {
-    trim(&roomName);
-    if(strcmp(roomName, ROOM_1_ID) == 0) {
-        strncpy(client->chatRoomId, ROOM_1_ID, STANDARD_NAME_LENGTH);
-        printf("[DEBUG] client->chatRoomId: %s\n", client->chatRoomId);
-    }
-    else if(strcmp(roomName, ROOM_2_ID) == 0) {
-        strncpy(client->chatRoomId, ROOM_2_ID, STANDARD_NAME_LENGTH);
-        printf("[DEBUG] client->chatRoomId: %s\n", client->chatRoomId);
-    }
-    else {
-        write(client->clisd, "Invalid room name.\n", 30);
+    if (roomName != NULL && strlen(roomName) > 0) {
+        trim(&roomName);
+        if (strcmp(roomName, ROOM_1_ID) == 0) {
+            strncpy(client->chatRoomId, ROOM_1_ID, STANDARD_NAME_LENGTH);
+            printf("[INFO] Client %s @ sd %d has joined %s\n", client->name, client->clisd, client->chatRoomId);
+        } else if (strcmp(roomName, ROOM_2_ID) == 0) {
+            strncpy(client->chatRoomId, ROOM_2_ID, STANDARD_NAME_LENGTH);
+            printf("[INFO] Client %s @ sd %d has joined %s\n", client->name, client->clisd, client->chatRoomId);
+        } else {
+            write(client->clisd, "[ERROR] Invalid room name.\n", 30);
+        }
+    } else {
+        char temp[50];
+        sprintf(temp, "[ERROR] Input room name is empty.\n");
+        write(client->clisd, temp, strlen(temp));
     }
 }
 
@@ -382,34 +395,89 @@ void listPeopleCommand(Client *clients, int curClient) {
             write(clients[curClient].clisd, personInRoom, strlen(personInRoom));
         }
     }
-    write(clients[curClient].clisd, "\n", 3);
+    write(clients[curClient].clisd, "\n", 1);
 }
 
 void logOffCommand(Client *clients, int curClient) {
-    printf("[DEBUG] logOffCommand\n");
-    // //todo [2.1.LogOff] Need to follow the procedure in the server loop for closing client socket (close() -> clear fd in the fd_set -> serverOp_WipeCleanRecord)
-    // printf("[INFO] %s is logging off", clients[curClient].name);
-    // serverOperation_WipeClientRecord(clients, clients[curClient].clisd);
+    printf("[INFO] Client %s @ sd %d disconnected from/requested to log off the server\n",
+           clients[curClient].name, clients[curClient].clisd);
+
+    Client logOff_Client = clients[curClient];
+    close(logOff_Client.clisd);
+    FD_CLR(logOff_Client.clisd, &original_fd_list);
+    serverOperation_WipeClientRecord(clients, logOff_Client.clisd);
 }
 
-void privateChatCommand(char *personName, Client *clients, int curClient) {
-    printf("[DEBUG] privateChatCommand\n");
-    // Client privateClient = getPrivateChatClientByName(clients, personName);
-    // clients[curClient].privateChatSd = privateClient.clisd;
-    // privateClient.privateChatSd = clients[curClient].clisd;
-    // Still needs work
+void privateChatCommand(char *privateChatUser_name, Client *clients, int curClient) {
+
+    char temp[BUFFER_LENGTH];
+
+    if (privateChatUser_name == NULL) {
+        sprintf(temp, "[ERROR] Private chat partner name is empty\n");
+        write(clients[curClient].clisd, temp, strlen(temp));
+        return;
+    }
+
+    Client *curCli = NULL, *prvtChatCl = NULL;
+
+    curCli = &clients[curClient];
+    prvtChatCl = getPrivateChatClientByName(clients, privateChatUser_name);
+
+    if (prvtChatCl == NULL) {
+        sprintf(temp, "[ERROR] Private chat partner does not exist\n");
+        write(curCli->clisd, temp, strlen(temp));
+        return;
+    }
+    if (prvtChatCl == curCli) {
+        sprintf(temp, "[ERROR] Cannot start private chat session with yourself\n");
+        write(curCli->clisd, temp, strlen(temp));
+        return;
+    }
+
+    curCli->privateChatSd = prvtChatCl->clisd;
+    prvtChatCl->privateChatSd = curCli->clisd;
+    printf("[INFO] Client %s @ sd %d forced private chat session with client %s @ sd %d\n",
+           curCli->name, curCli->clisd, prvtChatCl->name, prvtChatCl->clisd);
+
+    sprintf(temp, "[ALERT] You have been forced into a private chat session with %s. Don't try to run away.\n",
+            curCli->name);
+    write(prvtChatCl->clisd, temp, strlen(temp));
+
+    bzero(temp, BUFFER_LENGTH);
+
+    sprintf(temp, "%s: ", curCli->name);
+    write(prvtChatCl->clisd, temp, strlen(temp));
+
 }
 
 void endPrivateChatCommand(Client *clients, int curClient) {
-    printf("[DEBUG] endPrivateChatCommand\n");
-    // int privateChatSd = clients[curClient].privateChatSd;
-    // clients[curClient].privateChatSd = -1;
-    // Client privateClient = getPrivateChatClientBySd(clients, privateChatSd);
-    // privateClient.privateChatSd = -1;
-    // Still needs work
+
+    Client *curCl = &clients[curClient];
+
+    if (curCl->privateChatSd > 0) {
+        Client *prvtChatCl = getPrivateChatClientBySd(clients, curCl->privateChatSd);
+
+        //<editor-fold desc="Assert condition prvChatCl != NULL">
+        if (prvtChatCl == NULL) {
+            exit(EXIT_FAILURE);
+        }
+        //</editor-fold>
+
+        curCl->privateChatSd = -1;
+        prvtChatCl->privateChatSd = -1;
+
+        printf("[INFO] Client %s @ %d ended private chat session with client %s @ %d\n",
+               curCl->name, curCl->clisd, prvtChatCl->name, prvtChatCl->clisd);
+    } else {
+        char temp[BUFFER_LENGTH];
+        sprintf(temp, "[ERROR] Cannot end private chat session when you're not in private chat session\n");
+        write(curCl->clisd, temp, strlen(temp));
+    }
+
 }
 
 void sendFileCommand(char *fileName) {
+    //todo [2.1.SendFile] Pass in clients' array & curClient sending file (during private chat(?))
     printf("[DEBUG] sendFileCommand\n");
 }
 
@@ -417,70 +485,98 @@ void helpCommand(Client *client) {
     int stringLength = 600;
     char helpMessage[600];
     snprintf(helpMessage, stringLength, "%s%s%s%s%s%s%s%s%s",
-        "Here are the available commands:\n",
-        "'/r'          -  list the rooms on the server\n",
-        "'/j roomname' -  joins the given room\n",
-        "'/l'          -  lists people in the current room\n",
-        "'/x'          -  close the connection and log off the server\n",
-        "'/p name'     -  private chat\n",
-        "'/q'          -  end private chat\n",
-        "'/f filename' -  send file\n",
-        "'/h'          -  help\n"
+             "Here are the available commands:\n",
+             "'/r'          -  list the rooms on the server\n",
+             "'/j roomname' -  joins the given room\n",
+             "'/l'          -  lists people in the current room\n",
+             "'/x'          -  close the connection and log off the server\n",
+             "'/p name'     -  private chat\n",
+             "'/q'          -  end private chat\n",
+             "'/f filename' -  send file\n",
+             "'/h'          -  help\n"
     );
-    write(client->clisd, helpMessage, stringLength);
+    write(client->clisd, helpMessage, (size_t) stringLength);
+    printf("[INFO] Client %s @ sd %d requested help list (/h)\n", client->name, client->clisd);
 }
 
 void broadcastMessage(Client *clients, int curClient, char *message) {
-    printf("[DEBUG] broadcastMessage to %s\n", clients[curClient].chatRoomId);
+
     char nameAndMessage[BUFFER_LENGTH + 15];
     sprintf(nameAndMessage, "(%s) %s", clients[curClient].name, message);
+
     int j;
     for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
         if (clients[j].clisd > 0
             && j != curClient
-            && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
-            write(clients[j].clisd, nameAndMessage, strlen(nameAndMessage));
+            && strcmp(clients[j].chatRoomId, LIMBO) != 0) {
+
+            //Client is in a room and is able to send message
+            if (clients[j].privateChatSd > 0 &&
+                clients[curClient].privateChatSd == clients[j].clisd) {
+
+                //<editor-fold desc="DEBUG - Assert condition - will exit if false">
+                if (clients[curClient].clisd != clients[j].privateChatSd) {
+                    printf("[DEBUGERR] clients[curClient].clisd (%d) != (%d) clients[j].privateChatSd\n",
+                           clients[curClient].clisd, clients[j].privateChatSd);
+                    exit(-1);
+                }
+                //</editor-fold>
+
+                write(clients[j].privateChatSd, nameAndMessage, strlen(nameAndMessage));
+                write(clients[j].privateChatSd, "\n", 1);
+            } else {
+                write(clients[j].clisd, nameAndMessage, strlen(nameAndMessage));
+                write(clients[j].clisd, "\n", 1);
+            }
+
+            printf("[INFO] Client %s @ sd %d broadcast message %s to %s in room %s\n",
+                   clients[curClient].name,
+                   clients[curClient].clisd,
+                   (clients[curClient].privateChatSd > 0) ? "privately" : "publicly",
+                   (clients[curClient].privateChatSd > 0) ? clients[j].name : "everyone",
+                   clients[curClient].chatRoomId
+            );
+
         }
     }
     //todo [2.1.Broadcast] Need to alter the condition to check if client is in private chat
 }
 
 void stripNewLine(char *array) {
-	if(array == NULL) {
-		perror("array is null");
-		exit(-99);
-	}
+    if (array == NULL) {
+        perror("array is null");
+        exit(-99);
+    }
 
-	int length = strlen(array), x = 0;
-   
-	while(array[x] != '\0' && x < length) {
-	  if(array[x] == '\r') {
-          array[x] = '\0';
-      }
-	  else if(array[x] == '\n') {
-          array[x] = '\0';
-      }
+    int length = strlen(array), x = 0;
 
-	  x++;
+    while (array[x] != '\0' && x < length) {
+        if (array[x] == '\r') {
+            array[x] = '\0';
+        } else if (array[x] == '\n') {
+            array[x] = '\0';
+        }
+
+        x++;
     }
 }
 
 // remove a single space ' ' on either end of the string. Does NOT remove it in the middle; does not remove multiple spaces.
-void trim(char ** word) {
-	if(word == NULL) {
-		perror("word is null");
-		exit(-99);
-	}// end if
+void trim(char **word) {
+    if (word == NULL) {
+        perror("word is null");
+        exit(-99);
+    }// end if
 
     stripNewLine(*word);
 
-	int length = strlen(*word);
+    int length = strlen(*word);
 
-    if(length > 1) {
-        if((*word)[0] == ' ') {
+    if (length > 1) {
+        if ((*word)[0] == ' ') {
             *word = *word + 1;
         }
-        if((*word)[length - 1] == ' ') {
+        if ((*word)[length - 1] == ' ') {
             (*word)[length - 1] = '\0';
         }
     }
