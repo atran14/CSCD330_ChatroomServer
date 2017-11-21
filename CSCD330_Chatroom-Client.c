@@ -162,18 +162,15 @@ char *getFileContents(char *fileName) {
 }
 
 char *receiverParseFilePacket(char *filePacket) {
+    filePacket += 3;
     char *byteString = strtok_r(filePacket, "|", &filePacket);
     int bytes = atoi(byteString);
     char *fileName = strtok_r(filePacket, "|", &filePacket);
     char *fileContents = strtok_r(filePacket, "", &filePacket);
-    printf("[DEBUG] byteString: %s\n", byteString);
-    printf("[DEBUG] bytes: %d\n", bytes);
-    printf("[DEBUG] fileName: %s\n", fileName);
-    printf("[DEBUG] fileContents: %s\n", fileContents);
-    int fd = open("test.txt", O_CREAT|O_WRONLY);
-    if (fd == -1) {
+    FILE *file = fopen(fileName, "w");
+    if (!file) {
         printf("Error creating file %s\n", fileName);
     }
-    write(fd, &fileContents, BUFFER_LENGTH);
-    close(fd);
+    fprintf(file, fileContents, 1);
+    fclose(file);
 }
