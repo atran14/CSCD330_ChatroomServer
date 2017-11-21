@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <strings.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -20,6 +22,14 @@ char recvline[BUFFER_LENGTH];
 void *clientOperation_ReadThreadFunction(void *in_ptr);
 
 void clientOperation_StripNewLine(char* str);
+
+char *parseFileName(char *input);
+
+int getFileSize(char *fileName);
+
+char *getFileContents(char *fileName);
+
+char *receiverParseFilePacket(char *filePacket);
 
 /*******************  Function prototypes end here  ************************/
 
@@ -54,6 +64,27 @@ int main() {
 
         fgets(sendline, BUFFER_LENGTH, stdin);
 
+        if (sendline[0] == '/' && sendline[1] == 'f' && strlen(sendline) > 3) {
+            char fileName[30];
+            bzero(fileName, 30);
+            strncpy(fileName, sendline + 3, 30);
+            clientOperation_StripNewLine(fileName);
+            // read file size
+            int fileSize = getFileSize(fileName);
+            // read file contents
+            if (fileSize > 0) {
+                char *contents = getFileContents(fileName);
+                // append these in proper format to sendline
+                if(strlen(contents)) {
+                    clientOperation_StripNewLine(contents);
+                    char fileContents[BUFFER_LENGTH];
+                    strncpy(fileContents, contents, BUFFER_LENGTH);
+                    bzero(sendline, BUFFER_LENGTH);
+                    sprintf(sendline, "/f %d|%s|%s", fileSize, fileName, fileContents);
+                }
+            }
+        }
+
         if (write(sockfd, sendline, strlen(sendline) + 1) == 0) {
             printf("Server gone missing, exiting...\n");
             break;
@@ -71,7 +102,14 @@ void *clientOperation_ReadThreadFunction(void *in_ptr) {
         bzero(recvline, BUFFER_LENGTH);
 
         if (read(sockfd, recvline, BUFFER_LENGTH) != 0) {
-            printf("%s", recvline);
+            if (recvline[0] == '/' && recvline[1] == 'f') {
+                // write file
+                receiverParseFilePacket(recvline);
+                printf("file transferred\n");
+            }
+            else {
+                printf("%s", recvline);
+            }
         } else {
             break;
         }
@@ -82,5 +120,60 @@ void *clientOperation_ReadThreadFunction(void *in_ptr) {
 }
 
 void clientOperation_StripNewLine(char* str) {
-    
+	int length = strlen(str);
+
+    if (length > 1) {
+        if (str[length - 1] == '\r' || str[length - 1] == '\n') {
+            str[length - 1] = '\0';
+        }
+        if (str[length - 2] == '\r' || str[length - 2] == '\n') {
+            str[length - 2] = '\0';
+        }
+    }
+}
+
+int getFileSize(char *fileName) {
+    int fileSize;
+    int fd;
+    if((fd = open(fileName, O_RDONLY)) < 0) {
+        printf("Could not read '%s' size.\n", fileName);
+        return -1;
+    }
+    else {
+        lseek(fd, 0, SEEK_END);
+        fileSize = lseek(fd, 0, SEEK_CUR);
+        close(fd);
+        return fileSize;
+    }
+}
+
+char *getFileContents(char *fileName) {
+    int fd = open(fileName, O_RDONLY);
+    if (fd == -1) {
+        printf("Could not open '%s' contents.\n", fileName);
+    }
+    else {
+        char fileContents[BUFFER_LENGTH];
+        read(fd, &fileContents, BUFFER_LENGTH);
+        close(fd);
+        char *contents = fileContents + 0;
+        return contents;
+    }
+}
+
+char *receiverParseFilePacket(char *filePacket) {
+    char *byteString = strtok_r(filePacket, "|", &filePacket);
+    int bytes = atoi(byteString);
+    char *fileName = strtok_r(filePacket, "|", &filePacket);
+    char *fileContents = strtok_r(filePacket, "", &filePacket);
+    printf("[DEBUG] byteString: %s\n", byteString);
+    printf("[DEBUG] bytes: %d\n", bytes);
+    printf("[DEBUG] fileName: %s\n", fileName);
+    printf("[DEBUG] fileContents: %s\n", fileContents);
+    int fd = open("test.txt", O_CREAT|O_WRONLY);
+    if (fd == -1) {
+        printf("Error creating file %s\n", fileName);
+    }
+    write(fd, &fileContents, BUFFER_LENGTH);
+    close(fd);
 }

@@ -74,7 +74,7 @@ void privateChatCommand(char *personName, Client *clients, int curClient);
 
 void endPrivateChatCommand(Client *clients, int curClient);
 
-void sendFileCommand(char *fileName);
+void sendFileCommand(char *filePacket, Client *clients, int curClient);
 
 void helpCommand(Client *client);
 
@@ -293,7 +293,7 @@ void interpretCommand(char *input, Client *clients, int curClient) {
             endPrivateChatCommand(clients, curClient);
             break;
         case SEND_FILE_COMMAND_ID:
-            sendFileCommand(arguments);
+            sendFileCommand(arguments, clients, curClient);
             break;
         case HELP_COMMAND_ID:
             helpCommand(&(clients[curClient]));
@@ -409,8 +409,18 @@ void endPrivateChatCommand(Client *clients, int curClient) {
     // Still needs work
 }
 
-void sendFileCommand(char *fileName) {
+void sendFileCommand(char *filePacket, Client *clients, int curClient) {
     printf("[DEBUG] sendFileCommand\n");
+    printf("[DEBUG] Received file: %s\n", filePacket);
+
+    if(clients[curClient].privateChatSd < 0) {
+        write(clients[curClient].clisd, "You must be in a private chat to send files.\n", 60);
+    }
+    else {
+        char prependFilePacket[BUFFER_LENGTH];
+        sprintf(prependFilePacket, "/f %s", filePacket);
+        write(clients[curClient].privateChatSd, prependFilePacket, BUFFER_LENGTH);
+    }
 }
 
 void helpCommand(Client *client) {
