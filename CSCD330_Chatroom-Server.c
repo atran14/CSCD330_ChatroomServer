@@ -1,6 +1,5 @@
 #include <netinet/in.h>
 #include <strings.h>
-#include <string.h>
 #include <stdio.h>
 #include <sys/select.h>
 #include <stdlib.h>
@@ -50,7 +49,9 @@ void preServerStart_InitializeNoWaitInterval(struct timeval *interval);
 
 void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescriptor);
 
-void getClientName(Client *newClient, char *masterBuffer);
+int serverOperation_IsNameAlreadyTaken(Client *clientArray, char *inputName);
+
+void serverOperation_submitNameToClient(Client *clients, char *masterBuffer, int curClient_no);
 
 void writePromptPrefix(Client *clients, int curClient);
 
@@ -141,7 +142,10 @@ int main() {
                     clients[i].clisd = newC_sd;
                     printf("[INFO] Client %d is initialized with sock_def of %d w/ default name \"LIMBO\"\n", i,
                            newC_sd);
-                    getClientName(&(clients[i]), masterBuffer);
+
+                    write(clients[i].clisd, "Enter your name: ", BUFFER_LENGTH - 1);
+                    bzero(masterBuffer, BUFFER_LENGTH);
+
                     break;
                 }
             }
@@ -169,8 +173,12 @@ int main() {
                         logOffCommand(clients, i);
                     } else { //successfully read message from client[i]
 
-                        interpretCommand(masterBuffer, clients, i);
-                        writePromptPrefix(clients, i);
+                        if (0 == strlen(clients[i].name)) {
+                            serverOperation_submitNameToClient(clients, masterBuffer, i);
+                        } else {
+                            interpretCommand(masterBuffer, clients, i);
+                            writePromptPrefix(clients, i);
+                        }
 
                         bzero(masterBuffer, BUFFER_LENGTH);
                         if (--io_ready_count <= 0) break;
@@ -184,6 +192,25 @@ int main() {
 #pragma clang diagnostic pop
 
     return 0;
+}
+
+void serverOperation_submitNameToClient(Client *clients, char *masterBuffer, int curClient_no) {
+    if (0 == strlen(masterBuffer)) {
+        sprintf(masterBuffer, "[ERROR] Please enter a non-empty name\nEnter your name: ");
+    } else if (8 < strlen(masterBuffer)) {
+        bzero(masterBuffer, BUFFER_LENGTH);
+        sprintf(masterBuffer,
+                "[ERROR] Please enter your name with 8 characters or less\nEnter your name: ");
+    } else if (serverOperation_IsNameAlreadyTaken(clients, masterBuffer)) {
+        sprintf(masterBuffer,
+                "[ERROR] Your name is already taken. Please enter a different name\nEnter your name: ");
+    } else {
+        strncpy(clients[curClient_no].name, masterBuffer, STANDARD_NAME_LENGTH);
+        printf("[INFO] Client %d has been registered under the name of %s\n", curClient_no, clients[curClient_no].name);
+        sprintf(masterBuffer, "Welcome to E-Chat.\n");
+    }
+
+    write(clients[curClient_no].clisd, masterBuffer, strlen(masterBuffer));
 }
 
 /****************************    Function implementation begins here    *********************************************/
@@ -228,16 +255,16 @@ void serverOperation_WipeClientRecord(Client *clientArray, int client_sockDescri
     exit(-1);
 }
 
-void getClientName(Client *newClient, char *masterBuffer) {
-    //todo [2.1.GetClientName] Potential to clog other clients' turn at read() when one intentionally not typing their name just after connecting to server (fix after demo)
-    write(newClient->clisd, "Enter your name: \n", BUFFER_LENGTH - 1);
-    bzero(masterBuffer, BUFFER_LENGTH);
-    read(newClient->clisd, masterBuffer, BUFFER_LENGTH - 1);
-    stripNewLine(masterBuffer);
-    strncpy(newClient->name, masterBuffer, STANDARD_NAME_LENGTH);
-    write(newClient->clisd, "Welcome to E-Chat.\n", BUFFER_LENGTH - 1);
-    printf("[INFO] Client at sd %d changed its name to %s\n", newClient->clisd, masterBuffer);
-    bzero(masterBuffer, BUFFER_LENGTH);
+int serverOperation_IsNameAlreadyTaken(Client *clientArray, char *inputName) {
+    int i;
+
+    for (i = 0; i < USERS_CAP_PER_ROOM * ROOM_COUNT; i++) {
+        Client curClient = clientArray[i];
+        if (strcmp(curClient.name, inputName) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void writePromptPrefix(Client *clients, int curClient) {
@@ -440,7 +467,8 @@ void privateChatCommand(char *privateChatUser_name, Client *clients, int curClie
     printf("[INFO] Client %s @ sd %d forced private chat session with client %s @ sd %d\n",
            curCli->name, curCli->clisd, prvtChatCl->name, prvtChatCl->clisd);
 
-    sprintf(temp, "[ALERT] You have been forced into a private chat session with %s. Don't try to run away.\n",
+    sprintf(temp,
+            "[ALERT] You have been forced into a private chat session with %s. You've met with a terrible fate, haven't you?\n",
             curCli->name);
     write(prvtChatCl->clisd, temp, strlen(temp));
 
@@ -478,10 +506,9 @@ void endPrivateChatCommand(Client *clients, int curClient) {
 }
 
 void sendFileCommand(char *filePacket, Client *clients, int curClient) {
-    if(clients[curClient].privateChatSd < 0) {
+    if (clients[curClient].privateChatSd < 0) {
         write(clients[curClient].clisd, "You must be in a private chat to send files.\n", 60);
-    }
-    else {
+    } else {
         char prependFilePacket[BUFFER_LENGTH];
         sprintf(prependFilePacket, "/f %s", filePacket);
         write(clients[curClient].privateChatSd, prependFilePacket, BUFFER_LENGTH);
