@@ -10,8 +10,8 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#define BUFFER_LENGTH    1000
-
+#define BUFFER_LENGTH       1000
+#define CONNECT_PORT        8080
 
 int sockfd;
 char sendline[BUFFER_LENGTH];
@@ -44,7 +44,7 @@ int main() {
     bzero(&servaddr, sizeof(servaddr));
 
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(8080);
+    servaddr.sin_port = htons(CONNECT_PORT);
     inet_pton(AF_INET, "127.0.0.1", &(servaddr.sin_addr));
 
     printf("Finding server...\n");
@@ -63,12 +63,12 @@ int main() {
         bzero(sendline, BUFFER_LENGTH);
 
         fgets(sendline, BUFFER_LENGTH, stdin);
+        clientOperation_StripNewLine(sendline);
 
         if (sendline[0] == '/' && sendline[1] == 'f' && strlen(sendline) > 3) {
             char fileName[30];
             bzero(fileName, 30);
             strncpy(fileName, sendline + 3, 30);
-            clientOperation_StripNewLine(fileName);
             // read file size
             int fileSize = getFileSize(fileName);
             // read file contents
@@ -109,6 +109,7 @@ void *clientOperation_ReadThreadFunction(void *in_ptr) {
             }
             else {
                 printf("%s", recvline);
+                fflush(stdout);
             }
         } else {
             break;
@@ -122,7 +123,7 @@ void *clientOperation_ReadThreadFunction(void *in_ptr) {
 void clientOperation_StripNewLine(char* str) {
 	int length = strlen(str);
 
-    if (length > 1) {
+    if (length > 0) {
         if (str[length - 1] == '\r' || str[length - 1] == '\n') {
             str[length - 1] = '\0';
         }
