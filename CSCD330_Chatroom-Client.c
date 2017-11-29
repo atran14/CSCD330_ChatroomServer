@@ -89,6 +89,10 @@ int main() {
             printf("Server gone missing, exiting...\n");
             break;
         }
+
+        if (sendline[0] == '/' && sendline[1] == 'f') {
+            break;
+        }
     }
 
     close(sockfd);

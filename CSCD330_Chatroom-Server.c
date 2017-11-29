@@ -1,5 +1,6 @@
 #include <netinet/in.h>
 #include <strings.h>
+#include <string.h>
 #include <stdio.h>
 #include <sys/select.h>
 #include <stdlib.h>
@@ -556,8 +557,8 @@ void broadcastMessage(Client *clients, int curClient, char *message) {
                 }
                 //</editor-fold>
 
-                write(clients[j].privateChatSd, nameAndMessage, strlen(nameAndMessage));
-                write(clients[j].privateChatSd, "\n", 1);
+                write(clients[curClient].privateChatSd, nameAndMessage, strlen(nameAndMessage));
+                write(clients[curClient].privateChatSd, "\n", 1);
             } else {
                 write(clients[j].clisd, nameAndMessage, strlen(nameAndMessage));
                 write(clients[j].clisd, "\n", 1);
