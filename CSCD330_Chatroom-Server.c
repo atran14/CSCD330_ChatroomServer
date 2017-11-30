@@ -462,6 +462,26 @@ void privateChatCommand(char *privateChatUser_name, Client *clients, int curClie
         write(curCli->clisd, temp, strlen(temp));
         return;
     }
+    if (strcmp(curCli->chatRoomId, LIMBO) == 0) {
+        sprintf(temp, "[ERROR] Cannot start a private chat when in limbo\n");
+        write(curCli->clisd, temp, strlen(temp));
+        return;
+    }
+    if (strcmp(prvtChatCl->chatRoomId, curCli->chatRoomId) != 0) {
+        sprintf(temp, "[ERROR] Client is not in the same room, so a private chat cannot be started\n");
+        write(curCli->clisd, temp, strlen(temp));
+        return;
+    }
+    if (curCli->privateChatSd > 0) {
+        sprintf(temp, "[ERROR] Be courteous and leave your current private chat before starting a new one.\n");
+        write(curCli->clisd, temp, strlen(temp));
+        return;
+    }
+    if (prvtChatCl->privateChatSd > 0) {
+        sprintf(temp, "[ERROR] They're in a private chat already. Please leave them alone.\n");
+        write(curCli->clisd, temp, strlen(temp));
+        return;
+    }
 
     curCli->privateChatSd = prvtChatCl->clisd;
     prvtChatCl->privateChatSd = curCli->clisd;
@@ -537,31 +557,31 @@ void helpCommand(Client *client) {
 void broadcastMessage(Client *clients, int curClient, char *message) {
 
     char nameAndMessage[BUFFER_LENGTH + 15];
-    sprintf(nameAndMessage, "(%s) %s", clients[curClient].name, message);
+    sprintf(nameAndMessage, "(%s) %s\n", clients[curClient].name, message);
 
     int j;
     for (j = 0; j < USERS_CAP_PER_ROOM * ROOM_COUNT; j++) {
         if (clients[j].clisd > 0
             && j != curClient
-            && strcmp(clients[j].chatRoomId, LIMBO) != 0) {
+            && strcmp(clients[j].chatRoomId, LIMBO) != 0
+            && strcmp(clients[j].chatRoomId, clients[curClient].chatRoomId) == 0) {
 
             //Client is in a room and is able to send message
-            if (clients[j].privateChatSd > 0 &&
+            if (clients[j].privateChatSd == clients[curClient].clisd &&
                 clients[curClient].privateChatSd == clients[j].clisd) {
 
                 //<editor-fold desc="DEBUG - Assert condition - will exit if false">
                 if (clients[curClient].clisd != clients[j].privateChatSd) {
-                    printf("[DEBUGERR] clients[curClient].clisd (%d) != (%d) clients[j].privateChatSd\n",
+                    printf("[DEBUGGER] clients[curClient].clisd (%d) != (%d) clients[j].privateChatSd\n",
                            clients[curClient].clisd, clients[j].privateChatSd);
                     exit(-1);
                 }
                 //</editor-fold>
 
                 write(clients[curClient].privateChatSd, nameAndMessage, strlen(nameAndMessage));
-                write(clients[curClient].privateChatSd, "\n", 1);
-            } else {
+            } else if (clients[curClient].privateChatSd < 0
+                    && clients[j].privateChatSd < 0) {
                 write(clients[j].clisd, nameAndMessage, strlen(nameAndMessage));
-                write(clients[j].clisd, "\n", 1);
             }
 
             printf("[INFO] Client %s @ sd %d broadcast message %s to %s in room %s\n",
@@ -574,7 +594,6 @@ void broadcastMessage(Client *clients, int curClient, char *message) {
 
         }
     }
-    //todo [2.1.Broadcast] Need to alter the condition to check if client is in private chat
 }
 
 void stripNewLine(char *array) {
