@@ -12,6 +12,7 @@
 
 #define BUFFER_LENGTH       1000
 #define CONNECT_PORT        8080
+#define IP_ADDRESS_TARGET   "127.0.0.1"
 
 int sockfd;
 char sendline[BUFFER_LENGTH];
@@ -45,7 +46,7 @@ int main() {
 
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(CONNECT_PORT);
-    inet_pton(AF_INET, "127.0.0.1", &(servaddr.sin_addr));
+    inet_pton(AF_INET, IP_ADDRESS_TARGET, &(servaddr.sin_addr));
 
     printf("Finding server...\n");
     connect_result = connect(sockfd, (const struct sockaddr *) &servaddr, sizeof(servaddr));
@@ -90,7 +91,7 @@ int main() {
             break;
         }
 
-        if (sendline[0] == '/' && sendline[1] == 'f') {
+        if (sendline[0] == '/' && sendline[1] == 'x') {
             break;
         }
     }
